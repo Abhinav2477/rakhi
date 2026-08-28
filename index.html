@@ -909,7 +909,7 @@ function doCapture(){
   runCountdown(3, ()=>{
     capturedDataURL = capturePhoto();
     document.getElementById('preview-img').src = capturedDataURL;
-    releaseCamera();
+    if (stream) stream.getTracks().forEach(t=>t.stop());
     showScreen('photo-preview');
   });
 }
@@ -1034,7 +1034,6 @@ const paramsEl= document.getElementById('params');
 let facing = 'environment';
 let isMirrored = false;   // true only for front camera; keeps video + landmark math in sync
 let stream = null, hands = null;
-let cameraBusy = false;   // true while switching cameras — pauses MediaPipe feeding
 let lastT = performance.now(), frames = 0;
 
 // tunables
@@ -1160,45 +1159,19 @@ function makePlaceholderTexture(){
 }
 
 /* ---------------- camera + MediaPipe ---------------- */
-async function releaseCamera(){
-  if (!stream) return;
-  const tracks = stream.getTracks();
-  tracks.forEach(t=>t.stop());
-  stream = null;
-  video.srcObject = null;
-  try { video.pause(); } catch(e){}
-  // wait until the OS has actually released the device (tracks report 'ended'),
-  // then a small extra settle. Prevents NotReadableError when opening the other camera.
-  await new Promise(r=>setTimeout(r, 400));
-}
-
 async function startCamera(){
-  cameraBusy = true;       // pause MediaPipe feeding so it releases the device lock
-  await releaseCamera();   // fully let go of any current camera first
-
-  const constraints = { video: { facingMode: facing, width:{ideal:1280}, height:{ideal:720} }, audio:false };
-  let attempt = 0;
-  while (true){
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-      break;
-    } catch(e){
-      if (e && e.name === 'NotReadableError' && attempt < 3){
-        attempt++;
-        await new Promise(r=>setTimeout(r, 400 * attempt));
-        continue;
-      }
-      cameraBusy = false;
-      return showError(e);
-    }
-  }
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width:{ideal:1280}, height:{ideal:720} }, audio:false
+    });
+  } catch(e){ return showError(e); }
   video.srcObject = stream;
   await video.play();
   isMirrored = (facing === 'user');
   video.classList.toggle('mirrored', isMirrored);
   resizeRenderer();
   statusEl.textContent = 'Camera on. Show your hand.';
-  cameraBusy = false;      // resume tracking
 }
 
 function showError(e){
@@ -1421,9 +1394,7 @@ function setHandUI(rakhiVisible){
 }
 
 async function loop(){
-  // don't feed MediaPipe while the camera is being switched — holding the video
-  // element through a switch keeps a lock on the device and causes NotReadableError.
-  if (!cameraBusy && video.readyState>=2 && hands){
+  if (video.readyState>=2 && hands){
     try { await hands.send({ image: video }); } catch(e){}
   }
   requestAnimationFrame(loop);
@@ -1436,13 +1407,7 @@ function updateParams(){
 document.getElementById('b-wire').onclick = (e)=>{ wire=!wire; rakhi.material.wireframe=wire; e.target.classList.toggle('on',wire); };
 document.getElementById('b-axes').onclick = (e)=>{ showAxes=!showAxes; axesHelper.visible=showAxes; e.target.classList.toggle('on',showAxes); };
 document.getElementById('b-dots').onclick = (e)=>{ showDots=!showDots; e.target.classList.toggle('on',showDots); };
-let switchingCam = false;
-document.getElementById('b-cam').onclick = async ()=>{
-  if (switchingCam) return;               // ignore taps while a switch is in progress
-  switchingCam = true;
-  facing = facing==='environment' ? 'user' : 'environment';
-  try { await startCamera(); } finally { switchingCam = false; }
-};
+document.getElementById('b-cam').onclick  = async ()=>{ facing = facing==='environment'?'user':'environment'; await startCamera(); };
 
 window.addEventListener('keydown',(e)=>{
   if (e.key==='ArrowUp')   { offsetFactor+=0.05; e.preventDefault(); }
