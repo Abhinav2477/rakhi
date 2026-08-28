@@ -501,18 +501,6 @@
   <video id="cam" playsinline muted></video>
   <canvas id="three"></canvas>
 
-  <div id="hud">
-    <div>
-      <div id="status">Starting…</div>
-      <div id="fps"></div>
-    </div>
-    <div id="legend">
-      Flat rakhi plane oriented by the palm normal (0,5,17).<br>
-      <b>↑/↓</b> offset down arm &nbsp; <b>←/→</b> size &nbsp; <b>[ ]</b> gap off arm<br>
-      <b>W</b> wireframe &nbsp; <b>A</b> axes &nbsp; <b>D</b> dots &nbsp; <b>B</b> flip palm/back &nbsp; <b>F</b> front/rear<br>
-      <span id="params"></span>
-    </div>
-  </div>
 
   <!-- debug controls kept in DOM for shortcuts/logic, hidden in production -->
   <div class="controls" id="debug-controls" style="display:none;">
@@ -539,8 +527,6 @@
     <button class="btn-capture" id="ar-capture" aria-label="Capture photo"><span></span></button>
   </div>
 
-  <!-- dev-only: jump to brother view with placeholder data -->
-  <button id="dev-brother">🧪 test brother view</button>
 
   <div id="err"><div id="err-msg"></div></div>
 
@@ -933,25 +919,46 @@ function capturePhoto(){
 
   // 2) hide dots/skeleton/axes, render ONE clean frame, draw the 3D layer on top
   const dotsWere = landmarkDots.map(d=>d.visible);
-  const bonesWere = skeletonBones.map(b=>b.visible);
+  const skelWas = skeletonLines ? skeletonLines.visible : false;
   landmarkDots.forEach(d=>d.visible=false);
-  skeletonBones.forEach(b=>b.visible=false);
+  if (skeletonLines) skeletonLines.visible = false;
   const axesWas = axesHelper.visible; axesHelper.visible = false;
   renderer.render(scene, camera);
   ctx.drawImage(canvas3, 0, 0, W, H);
   landmarkDots.forEach((d,i)=>d.visible=dotsWere[i]);
-  skeletonBones.forEach((b,i)=>b.visible=bonesWere[i]);
+  if (skeletonLines) skeletonLines.visible = skelWas;
   axesHelper.visible = axesWas;
 
   return out.toDataURL('image/jpeg', 0.92);
 }
 
 let capturedDataURL = null;
+
+// can this browser share an image FILE via the native sheet? (mobile yes, desktop usually no)
+function canShareFiles(){
+  try {
+    const f = new File([new Blob([''], {type:'image/jpeg'})], 't.jpg', {type:'image/jpeg'});
+    return !!(navigator.canShare && navigator.canShare({ files:[f] }));
+  } catch(e){ return false; }
+}
+
+// set the primary photo-action button label to match what it'll actually do
+function updatePhotoActionLabel(){
+  const btn = document.getElementById('photo-send');
+  if (canShareFiles()){
+    const name = incomingFrom || 'your sister';
+    btn.innerHTML = 'Send to <span id="send-name">'+name+'</span> →';
+  } else {
+    btn.textContent = 'Download photo ↓';   // desktop: no file share → download
+  }
+}
+
 function doCapture(){
   runCountdown(3, ()=>{
     capturedDataURL = capturePhoto();
     document.getElementById('preview-img').src = capturedDataURL;
     if (stream) stream.getTracks().forEach(t=>t.stop());
+    updatePhotoActionLabel();
     showScreen('photo-preview');
   });
 }
@@ -973,14 +980,6 @@ document.getElementById('photo-send').onclick = async ()=>{
   }
 };
 
-/* ---------- dev-only: jump to brother view with placeholder data ---------- */
-document.getElementById('dev-brother').onclick = ()=>{
-  enterReveal({
-    ornament: selectedRakhi.ornament, band: selectedRakhi.band,
-    message: 'No matter how far apart we are, you\u2019ll always be my first friend. Happy Rakhi, bhai. \u2764\uFE0F',
-    from: 'Ananya',
-  });
-};
 
 
 
@@ -1069,9 +1068,11 @@ function applySelectedRakhi(){
 
 const video   = document.getElementById('cam');
 const canvas3 = document.getElementById('three');
-const statusEl= document.getElementById('status');
-const fpsEl   = document.getElementById('fps');
-const paramsEl= document.getElementById('params');
+// HUD removed for production — stub so the (now invisible) status/fps/params writes are harmless
+const _noop = { textContent: '' };
+const statusEl= document.getElementById('status') || _noop;
+const fpsEl   = document.getElementById('fps')    || _noop;
+const paramsEl= document.getElementById('params') || _noop;
 
 let facing = 'environment';
 let isMirrored = false;   // true only for front camera; keeps video + landmark math in sync
@@ -1094,7 +1095,7 @@ let windingFlip = false; // toggle if palm/back detection is inverted (press B)
 /* ---------------- Three.js setup ---------------- */
 let renderer, scene, camera, rakhi, axesHelper;
 let landmarkDots = [];
-let skeletonBones = [];
+let skeletonLines = null;
 let handConnections = [];
 let showDots = true;
 let smoothed = null;   // { pos:Vector3, quat:Quaternion, scale:number }
@@ -1142,7 +1143,7 @@ function initThree(){
   axesHelper.visible = showAxes;
   rakhi.add(axesHelper);
 
-  // --- gold hand skeleton: thick connecting bones (cylinders) + dots ---
+  // --- gold hand skeleton: thin connecting lines + maroon dots with gold rim ---
   const GOLD = 0xd8a34b;
   handConnections = [
     [0,1],[1,2],[2,3],[3,4],            // thumb
@@ -1152,18 +1153,15 @@ function initThree(){
     [13,17],[17,18],[18,19],[19,20],    // pinky
     [0,17],                             // palm base
   ];
-  const boneMat = new THREE.MeshBasicMaterial({ color: GOLD, transparent:true, opacity:0.92 });
-  // unit cylinder along +Y, radius 1, height 1 — we scale/position/orient per bone each frame
-  const boneGeo = new THREE.CylinderGeometry(1, 1, 1, 8);
-  for (let i = 0; i < handConnections.length; i++){
-    const bone = new THREE.Mesh(boneGeo, boneMat);
-    bone.visible = false;
-    scene.add(bone);
-    skeletonBones.push(bone);
-  }
+  // thin skeleton lines (one LineSegments, positions updated each frame)
+  const skelGeo = new THREE.BufferGeometry();
+  skelGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(handConnections.length*2*3), 3));
+  skeletonLines = new THREE.LineSegments(skelGeo, new THREE.LineBasicMaterial({ color: GOLD, transparent:true, opacity:0.9 }));
+  skeletonLines.visible = false;
+  scene.add(skeletonLines);
 
   // 21 gold dots
-  const dotGeo = new THREE.SphereGeometry(1, 12, 12);
+  const dotGeo = new THREE.SphereGeometry(1, 14, 14);
   const dotMat = new THREE.MeshBasicMaterial({ color: GOLD });
   for (let i = 0; i < 21; i++){
     const dot = new THREE.Mesh(dotGeo, dotMat);
@@ -1280,7 +1278,7 @@ function onResults(results){
   if (now-lastT>500){ fpsEl.textContent = Math.round(frames*1000/(now-lastT))+' fps'; frames=0; lastT=now; }
 
   const lm = results.multiHandLandmarks && results.multiHandLandmarks[0];
-  if (!lm){ statusEl.textContent='No hand detected'; rakhi.visible=false; landmarkDots.forEach(d=>d.visible=false); skeletonBones.forEach(b=>b.visible=false); updatePrompt(1, 'frame'); setHandUI(false); renderer.render(scene,camera); return; }
+  if (!lm){ statusEl.textContent='No hand detected'; rakhi.visible=false; landmarkDots.forEach(d=>d.visible=false); if(skeletonLines) skeletonLines.visible=false; updatePrompt(1, 'frame'); setHandUI(false); renderer.render(scene,camera); return; }
   const W = canvas3.clientWidth, H = canvas3.clientHeight;
 
   // key points in world space
@@ -1394,9 +1392,8 @@ function onResults(results){
   updatePrompt(1 - smoothed.opacity, 'turn');
   setHandUI(smoothed.opacity > 0.5);   // rakhi shown → slider; rakhi faded → guidance
 
-  // update the gold hand skeleton: dots + thick cylinder bones
+  // update the gold hand skeleton: gold dots + thin gold lines
   const dotR = Math.max(3, handW * 0.04);
-  const boneR = Math.max(2, handW * 0.02);   // bone thickness
   const worldPts = [];
   for (let i = 0; i < 21; i++) worldPts.push(toWorld(lm[i], W, H));
   for (let i = 0; i < 21; i++){
@@ -1404,19 +1401,17 @@ function onResults(results){
     if (showDots){ d.position.copy(worldPts[i]); d.scale.setScalar(dotR); d.visible = true; }
     else d.visible = false;
   }
-  const _up = new THREE.Vector3(0,1,0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3();
-  for (let b = 0; b < handConnections.length; b++){
-    const bone = skeletonBones[b];
-    if (!showDots){ bone.visible = false; continue; }
-    const [a, c] = handConnections[b];
-    const pa = worldPts[a], pc = worldPts[c];
-    _dir.subVectors(pc, pa);
-    const len = _dir.length() || 0.0001;
-    _mid.addVectors(pa, pc).multiplyScalar(0.5);
-    bone.position.copy(_mid);
-    bone.scale.set(boneR, len, boneR);
-    bone.quaternion.setFromUnitVectors(_up, _dir.normalize());
-    bone.visible = true;
+  if (showDots && skeletonLines){
+    const pos = skeletonLines.geometry.attributes.position.array;
+    let k = 0;
+    for (const [a,b] of handConnections){
+      pos[k++]=worldPts[a].x; pos[k++]=worldPts[a].y; pos[k++]=worldPts[a].z;
+      pos[k++]=worldPts[b].x; pos[k++]=worldPts[b].y; pos[k++]=worldPts[b].z;
+    }
+    skeletonLines.geometry.attributes.position.needsUpdate = true;
+    skeletonLines.visible = true;
+  } else if (skeletonLines){
+    skeletonLines.visible = false;
   }
 
   renderer.render(scene, camera);
@@ -1630,10 +1625,8 @@ document.getElementById('b-back').onclick = () => {
     const payload = decodePayload();
     if (payload){
       enterReveal(payload);              // valid link → brother reveal
-      document.getElementById('dev-brother').style.display = 'none';  // hide dev toggle for real visitors
     } else {
       showScreen('broken');              // garbage/broken link
-      document.getElementById('dev-brother').style.display = 'none';
     }
   } else {
     showScreen('pick');                  // no link → sister builder
