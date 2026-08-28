@@ -224,6 +224,66 @@
     #share-native { display: none; }          /* desktop: hide native share (copy link instead) */
   }
 
+  /* ---------- brother: reveal screen ---------- */
+  #reveal { overflow-y: auto; background: radial-gradient(120% 80% at 50% -10%, var(--plum-700) 0%, var(--plum-900) 60%); }
+  .reveal-inner { max-width: 500px; margin: 0 auto; padding: 56px 24px 80px; min-height: 100%; display: flex; flex-direction: column; }
+  .reveal-thread { font-size: 44px; margin-bottom: 12px; }
+  #reveal h1 { font-family: var(--font-display); font-weight: 500; font-size: clamp(28px,7vw,40px); line-height: 1.1; margin: 12px 0 24px; }
+  .reveal-card {
+    background: var(--plum-800); border: 1px solid var(--line); border-radius: 22px;
+    padding: 28px 24px; margin-bottom: 28px; text-align: center;
+  }
+  .reveal-rakhi { display: flex; justify-content: center; margin-bottom: 20px; }
+  .reveal-rakhi svg { width: 150px; height: 150px; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.45)); }
+  .reveal-message { font-size: 17px; line-height: 1.65; color: var(--ivory); font-style: italic; }
+  .reveal-from { margin-top: 18px; font-family: var(--font-display); font-style: italic; color: var(--gold-300); font-size: 18px; }
+  #reveal .btn-primary { max-width: 100%; }
+
+  /* ---------- countdown overlay ---------- */
+  #countdown {
+    position: absolute; inset: 0; z-index: 20; display: none;
+    align-items: center; justify-content: center; pointer-events: none;
+    background: rgba(10,6,10,0.25);
+  }
+  #countdown.on { display: flex; }
+  #countdown span {
+    font-family: var(--font-display); font-weight: 600; color: var(--ivory);
+    font-size: 140px; text-shadow: 0 4px 30px rgba(0,0,0,0.6);
+    animation: countPop .9s ease both;
+  }
+  @keyframes countPop {
+    0% { opacity: 0; transform: scale(1.4); }
+    25% { opacity: 1; transform: scale(1); }
+    75% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.85); }
+  }
+
+  /* ---------- capture button (brother AR) ---------- */
+  .btn-capture {
+    display: none; width: 72px; height: 72px; border-radius: 50%; cursor: pointer;
+    background: transparent; border: 4px solid var(--ivory); padding: 5px;
+    margin: 0 auto; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  .btn-capture span { display: block; width: 100%; height: 100%; border-radius: 50%; background: var(--ivory); transition: transform .1s; }
+  .btn-capture:active span { transform: scale(0.88); }
+  body.brother-mode #ar-share { display: none; }
+  body.brother-mode .btn-capture { display: block; }
+
+  /* ---------- photo preview / confirm ---------- */
+  #photo-preview { background: var(--plum-900); overflow-y: auto; }
+  .preview-inner { max-width: 500px; margin: 0 auto; padding: 40px 24px 60px; min-height: 100%; display: flex; flex-direction: column; }
+  .preview-title { font-family: var(--font-display); font-weight: 500; font-size: 26px; text-align: center; margin-bottom: 20px; }
+  .preview-img-wrap { flex: 1; display: flex; align-items: center; justify-content: center; margin-bottom: 24px; }
+  #preview-img { max-width: 100%; max-height: 62vh; border-radius: 18px; border: 1px solid var(--line); }
+  .preview-actions { display: flex; flex-direction: column; gap: 10px; }
+
+  /* ---------- dev-only brother toggle ---------- */
+  #dev-brother {
+    position: absolute; top: 60px; left: 12px; z-index: 30;
+    font-size: 11px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+    background: rgba(0,0,0,0.55); color: #ff9; border: 1px dashed #ff9;
+  }
+
   /* ---------- tracker screen ---------- */
   #stage { }
   #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -381,6 +441,31 @@
   </div>
 </section>
 
+<!-- ============ BROTHER: REVEAL SCREEN ============ -->
+<section class="screen" id="reveal">
+  <div class="reveal-inner">
+    <div class="reveal-thread">🧵</div>
+    <div class="eyebrow">Raksha Bandhan</div>
+    <h1 id="reveal-title">Your sister sent you a rakhi.</h1>
+    <div class="reveal-card">
+      <div class="reveal-rakhi" id="reveal-rakhi"></div>
+      <p class="reveal-message" id="reveal-message"></p>
+      <div class="reveal-from" id="reveal-from"></div>
+    </div>
+    <button class="btn-primary" id="reveal-try">Try it on →</button>
+  </div>
+</section>
+
+<!-- ============ BROKEN LINK SCREEN ============ -->
+<section class="screen" id="broken">
+  <div class="reveal-inner" style="justify-content:center;text-align:center;">
+    <div class="reveal-thread">🧵</div>
+    <h1>This rakhi link seems broken.</h1>
+    <p class="lede" style="text-align:center;margin:12px auto 28px;">The link may have been cut off when it was shared. Ask your sister to send it again — or make one yourself.</p>
+    <button class="btn-ghost" id="broken-build" style="max-width:320px;margin:0 auto;">Make your own rakhi →</button>
+  </div>
+</section>
+
 <!-- ============ SCREEN 2: CAMERA / TRACKER ============ -->
 <div class="screen" id="stage">
   <video id="cam" playsinline muted></video>
@@ -407,9 +492,16 @@
     <button id="b-cam">Front / Rear</button>
   </div>
 
+  <!-- countdown overlay -->
+  <div id="countdown"><span id="countdown-num"></span></div>
+
   <div id="ar-share-wrap">
     <button class="btn-primary" id="ar-share">Share with your brother →</button>
+    <button class="btn-capture" id="ar-capture" aria-label="Capture photo"><span></span></button>
   </div>
+
+  <!-- dev-only: jump to brother view with placeholder data -->
+  <button id="dev-brother">🧪 test brother view</button>
 
   <div id="err"><div id="err-msg"></div></div>
 
@@ -442,6 +534,20 @@
     <div class="guide-label" id="guide-label">How to</div>
   </div>
 </div>
+
+<!-- ============ BROTHER: PHOTO PREVIEW / CONFIRM ============ -->
+<section class="screen" id="photo-preview">
+  <div class="preview-inner">
+    <h2 class="preview-title">Looking good! 🎉</h2>
+    <div class="preview-img-wrap">
+      <img id="preview-img" alt="Your rakhi photo" />
+    </div>
+    <div class="preview-actions">
+      <button class="btn-primary" id="photo-send">Send to <span id="send-name">your sister</span> →</button>
+      <button class="btn-ghost" id="photo-redo">↺ Retake</button>
+    </div>
+  </div>
+</section>
 
 <!-- ============ SHARE MODAL ============ -->
 <div id="share-modal">
@@ -709,6 +815,130 @@ shareNativeBtn.onclick = async ()=>{
 };
 
 renderPreview();
+
+/* ============================================================
+   BROTHER FLOW: decode link → reveal → AR (capture) → preview → send
+   ============================================================ */
+let isBrother = false;
+let incomingFrom = '';
+
+// decode the payload from the URL hash. returns null if absent/invalid.
+function decodePayload(){
+  const hash = location.hash.slice(1);
+  if (!hash) return null;
+  try {
+    const p = JSON.parse(fromB64(hash));
+    if (!p || !p.o || !p.b) return null;     // must at least have ornament + band
+    if (!ornamentById(p.o)) return null;
+    return { ornament: p.o, band: p.b, message: p.m || '', from: (p.f || '').trim() };
+  } catch(e){ return null; }
+}
+
+// populate + show the brother's reveal screen from a decoded payload
+function enterReveal(payload){
+  isBrother = true;
+  incomingFrom = payload.from;
+  document.body.classList.add('brother-mode');
+
+  const fromName = payload.from || '';
+  document.getElementById('reveal-title').textContent =
+    fromName ? `${fromName} sent you a rakhi.` : 'Your sister sent you a rakhi.';
+  document.getElementById('reveal-message').textContent = payload.message || '';
+  document.getElementById('reveal-from').textContent =
+    fromName ? `— A rakhi from ${fromName}` : '';
+  document.getElementById('send-name').textContent = fromName || 'your sister';
+
+  // show her rakhi in the reveal card (upright, not AR-flipped)
+  document.getElementById('reveal-rakhi').innerHTML = rakhiSVG(payload.ornament, payload.band);
+
+  // make the AR render HER rakhi
+  selectedRakhi = { ornament: payload.ornament, band: payload.band };
+
+  showScreen('reveal');
+}
+
+document.getElementById('reveal-try').onclick = ()=> enterTracker();
+document.getElementById('broken-build').onclick = ()=>{ document.body.classList.remove('brother-mode'); isBrother=false; showScreen('pick'); };
+
+/* ---------- countdown + capture ---------- */
+function runCountdown(from, done){
+  const overlay = document.getElementById('countdown');
+  const numEl = document.getElementById('countdown-num');
+  overlay.classList.add('on');
+  let n = from;
+  const tick = ()=>{
+    if (n === 0){ overlay.classList.remove('on'); done(); return; }
+    numEl.textContent = n;
+    numEl.style.animation = 'none'; void numEl.offsetWidth; numEl.style.animation = '';
+    n--;
+    setTimeout(tick, 900);
+  };
+  tick();
+}
+
+// composite the camera frame + the clean 3D render into one image (no dots/UI).
+function capturePhoto(){
+  const W = canvas3.width, H = canvas3.height;
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const ctx = out.getContext('2d');
+
+  // 1) draw the camera frame (mirror to match the on-screen view when needed), cover-fit
+  ctx.save();
+  if (isMirrored){ ctx.translate(W, 0); ctx.scale(-1, 1); }
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const scale = Math.max(W / vw, H / vh);
+  const dw = vw * scale, dh = vh * scale;
+  ctx.drawImage(video, (W - dw)/2, (H - dh)/2, dw, dh);
+  ctx.restore();
+
+  // 2) hide dots/axes, render ONE clean frame, draw the 3D layer on top
+  const dotsWere = landmarkDots.map(d=>d.visible);
+  landmarkDots.forEach(d=>d.visible=false);
+  const axesWas = axesHelper.visible; axesHelper.visible = false;
+  renderer.render(scene, camera);
+  ctx.drawImage(canvas3, 0, 0, W, H);
+  landmarkDots.forEach((d,i)=>d.visible=dotsWere[i]);
+  axesHelper.visible = axesWas;
+
+  return out.toDataURL('image/jpeg', 0.92);
+}
+
+let capturedDataURL = null;
+function doCapture(){
+  runCountdown(3, ()=>{
+    capturedDataURL = capturePhoto();
+    document.getElementById('preview-img').src = capturedDataURL;
+    if (stream) stream.getTracks().forEach(t=>t.stop());
+    showScreen('photo-preview');
+  });
+}
+document.getElementById('ar-capture').onclick = doCapture;
+
+document.getElementById('photo-redo').onclick = async ()=>{
+  showScreen('stage'); resizeRenderer(); await startCamera();
+};
+
+document.getElementById('photo-send').onclick = async ()=>{
+  if (!capturedDataURL) return;
+  const blob = await (await fetch(capturedDataURL)).blob();
+  const file = new File([blob], 'my-rakhi.jpg', { type: 'image/jpeg' });
+  const text = 'Got the rakhi you sent me 🧵❤️';
+  if (navigator.canShare && navigator.canShare({ files:[file] })){
+    try { await navigator.share({ files:[file], text }); } catch(e){}
+  } else {
+    const a = document.createElement('a'); a.href = capturedDataURL; a.download = 'my-rakhi.jpg'; a.click();
+  }
+};
+
+/* ---------- dev-only: jump to brother view with placeholder data ---------- */
+document.getElementById('dev-brother').onclick = ()=>{
+  enterReveal({
+    ornament: selectedRakhi.ornament, band: selectedRakhi.band,
+    message: 'No matter how far apart we are, you\u2019ll always be my first friend. Happy Rakhi, bhai. \u2764\uFE0F',
+    from: 'Ananya',
+  });
+};
 
 
 
@@ -1287,7 +1517,21 @@ document.getElementById('b-back').onclick = () => {
 (function boot(){
   initThree();          // set up the 3D scene up front (cheap, no camera)
   updateParams();
-  showScreen('pick');   // start on the picker
+
+  // routing: does the URL carry a rakhi?
+  const hash = location.hash.slice(1);
+  if (hash){
+    const payload = decodePayload();
+    if (payload){
+      enterReveal(payload);              // valid link → brother reveal
+      document.getElementById('dev-brother').style.display = 'none';  // hide dev toggle for real visitors
+    } else {
+      showScreen('broken');              // garbage/broken link
+      document.getElementById('dev-brother').style.display = 'none';
+    }
+  } else {
+    showScreen('pick');                  // no link → sister builder
+  }
 })();
 
 </script>
