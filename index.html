@@ -1160,16 +1160,31 @@ function makePlaceholderTexture(){
 
 /* ---------------- camera + MediaPipe ---------------- */
 async function startCamera(){
-  if (stream) stream.getTracks().forEach(t=>t.stop());
+  // fully release any existing stream FIRST — front/rear can't both be held on most
+  // phones, so we must let the old device go before opening the new one, or we get
+  // NotReadableError ("could not start video source").
+  if (stream){
+    stream.getTracks().forEach(t=>t.stop());
+    stream = null;
+    video.srcObject = null;
+    await new Promise(r=>setTimeout(r, 250));   // give the OS a beat to release the camera
+  }
+
+  const constraints = { video: { facingMode: facing, width:{ideal:1280}, height:{ideal:720} }, audio:false };
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width:{ideal:1280}, height:{ideal:720} }, audio:false
-    });
-  } catch(e){ return showError(e); }
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch(e){
+    // NotReadableError is usually transient (device still releasing) — wait and retry once.
+    if (e && e.name === 'NotReadableError'){
+      await new Promise(r=>setTimeout(r, 500));
+      try { stream = await navigator.mediaDevices.getUserMedia(constraints); }
+      catch(e2){ return showError(e2); }
+    } else {
+      return showError(e);
+    }
+  }
   video.srcObject = stream;
   await video.play();
-  // mirror the feed ONLY for the front/selfie camera (natural mirror). Rear camera shows
-  // the world as-is. The landmark math below reads this same flag so tracking stays in sync.
   isMirrored = (facing === 'user');
   video.classList.toggle('mirrored', isMirrored);
   resizeRenderer();
@@ -1409,7 +1424,13 @@ function updateParams(){
 document.getElementById('b-wire').onclick = (e)=>{ wire=!wire; rakhi.material.wireframe=wire; e.target.classList.toggle('on',wire); };
 document.getElementById('b-axes').onclick = (e)=>{ showAxes=!showAxes; axesHelper.visible=showAxes; e.target.classList.toggle('on',showAxes); };
 document.getElementById('b-dots').onclick = (e)=>{ showDots=!showDots; e.target.classList.toggle('on',showDots); };
-document.getElementById('b-cam').onclick  = async ()=>{ facing = facing==='environment'?'user':'environment'; await startCamera(); };
+let switchingCam = false;
+document.getElementById('b-cam').onclick = async ()=>{
+  if (switchingCam) return;               // ignore taps while a switch is in progress
+  switchingCam = true;
+  facing = facing==='environment' ? 'user' : 'environment';
+  try { await startCamera(); } finally { switchingCam = false; }
+};
 
 window.addEventListener('keydown',(e)=>{
   if (e.key==='ArrowUp')   { offsetFactor+=0.05; e.preventDefault(); }
