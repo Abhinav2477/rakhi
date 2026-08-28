@@ -170,28 +170,52 @@
   /* mobile vertical offset slider (right side) */
   .mobile-only { display: none; }
   #offset-slider {
-    position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
     z-index: 5; touch-action: none;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .offset-cap {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--gold-300); background: rgba(28,16,24,0.7); backdrop-filter: blur(4px);
+    padding: 4px 9px; border-radius: 999px; white-space: nowrap;
   }
   .offset-track {
-    width: 44px; height: 200px; border-radius: 999px;
-    background: rgba(28,16,24,0.5); backdrop-filter: blur(4px);
-    border: 1px solid rgba(216,163,75,0.35);
+    width: 40px; height: 190px; border-radius: 999px;
+    background: rgba(28,16,24,0.55); backdrop-filter: blur(4px);
+    border: 1px solid rgba(216,163,75,0.4);
     position: relative; display: flex; justify-content: center;
+    box-shadow: inset 0 0 14px rgba(0,0,0,0.35);
+  }
+  /* subtle fill line down the middle so it reads as a track */
+  .offset-track::before {
+    content: ""; position: absolute; top: 14px; bottom: 14px; width: 3px;
+    background: rgba(216,163,75,0.25); border-radius: 2px;
   }
   .offset-handle {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
-    width: 40px; height: 40px; border-radius: 50%;
+    width: 38px; height: 38px; border-radius: 50%;
     background: var(--gold-500); color: var(--plum-900);
     display: flex; align-items: center; justify-content: center;
-    font-size: 18px; font-weight: 700; box-shadow: 0 3px 10px rgba(0,0,0,0.4);
-    cursor: grab; touch-action: none; user-select: none;
+    font-size: 17px; font-weight: 700; box-shadow: 0 3px 12px rgba(0,0,0,0.5);
+    cursor: grab; touch-action: none; user-select: none; border: 2px solid var(--gold-300);
   }
   .offset-handle:active { cursor: grabbing; }
+
+  /* camera flip button (top-right of AR screen) */
+  #cam-flip {
+    position: absolute; top: 64px; right: 16px; z-index: 6;
+    width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(216,163,75,0.4);
+    background: rgba(28,16,24,0.7); backdrop-filter: blur(4px); color: var(--gold-300);
+    font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .2s;
+  }
+  #cam-flip:hover { background: rgba(216,163,75,0.15); }
 
   /* on touch / small screens: show gesture controls, hide keyboard-oriented debug hints */
   @media (pointer: coarse), (max-width: 820px) {
     .mobile-only { display: block; }
+    #offset-slider { display: none; }                         /* hidden until a hand is detected */
+    body.hand-present #offset-slider { display: flex; }       /* show slider only with a hand */
     #legend { display: none; }               /* keyboard-shortcut legend is desktop-only */
     #share-native { display: flex; }          /* native share makes sense on mobile */
   }
@@ -201,7 +225,8 @@
 
   /* ---------- tracker screen ---------- */
   #stage { }
-  #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #cam.mirrored { transform: scaleX(-1); }
   #three { position: absolute; inset: 0; width: 100%; height: 100%; }
   #hud {
     position: absolute; top: 0; left: 0; right: 0; padding: 12px 16px; font-size: 13px; line-height: 1.5;
@@ -262,11 +287,11 @@
 
   /* guidance video that swaps with the active prompt */
   #guide {
-    position: absolute; right: 16px; bottom: 90px;
-    width: 150px; border-radius: 14px; overflow: hidden;
+    position: absolute; left: 16px; top: 64px;
+    width: 130px; border-radius: 14px; overflow: hidden;
     background: rgba(28,16,24,0.9); border: 1px solid rgba(216,163,75,0.4);
-    opacity: 0; transform: translateY(8px); transition: opacity .3s ease, transform .3s ease;
-    pointer-events: none;
+    opacity: 0; transform: translateY(-8px); transition: opacity .3s ease, transform .3s ease;
+    pointer-events: none; z-index: 4;
   }
   #guide.on { opacity: 1; transform: none; }
   #guide video, #guide .guide-placeholder {
@@ -394,10 +419,14 @@
     </div>
   </div>
 
+  <button id="cam-flip" aria-label="Switch camera">⟲</button>
+
   <div id="offset-slider" class="mobile-only">
+    <div class="offset-cap">Move up</div>
     <div class="offset-track" id="offset-track">
       <div class="offset-handle" id="offset-handle">⇅</div>
     </div>
+    <div class="offset-cap">Move down</div>
   </div>
 
   <div id="guide">
@@ -650,6 +679,7 @@ function closeShareModal(){ shareModal.classList.remove('on'); }
 
 document.getElementById('pick-share').onclick = openShareModal;
 document.getElementById('ar-share').onclick = openShareModal;
+document.getElementById('cam-flip').onclick = ()=> document.getElementById('b-cam').click();
 document.getElementById('share-close').onclick = closeShareModal;
 shareModal.onclick = (e)=>{ if (e.target === shareModal) closeShareModal(); };
 
@@ -765,6 +795,7 @@ const fpsEl   = document.getElementById('fps');
 const paramsEl= document.getElementById('params');
 
 let facing = 'environment';
+let isMirrored = false;   // true only for front camera; keeps video + landmark math in sync
 let stream = null, hands = null;
 let lastT = performance.now(), frames = 0;
 
@@ -900,6 +931,10 @@ async function startCamera(){
   } catch(e){ return showError(e); }
   video.srcObject = stream;
   await video.play();
+  // mirror the feed ONLY for the front/selfie camera (natural mirror). Rear camera shows
+  // the world as-is. The landmark math below reads this same flag so tracking stays in sync.
+  isMirrored = (facing === 'user');
+  video.classList.toggle('mirrored', isMirrored);
   resizeRenderer();
   statusEl.textContent = 'Camera on. Show your hand.';
 }
@@ -924,10 +959,11 @@ function initHands(){
 /* convert a MediaPipe landmark (normalized, origin top-left, x mirrored by our CSS)
    into our pixel-based world space (origin center, +y up, +z toward camera). */
 function toWorld(p, W, H){
-  const x = (1 - p.x) * W;   // mirror x to match the CSS-mirrored video
+  // mirror x ONLY when the video is mirrored (front camera), so landmarks track the
+  // on-screen hand in both modes.
+  const x = (isMirrored ? (1 - p.x) : p.x) * W;
   const y = p.y * H;
   // landmark z is roughly in "image-width" units, negative = toward camera.
-  // scale it into pixel space so it's commensurate with x,y.
   const z = -p.z * W;
   return new THREE.Vector3(x - W/2, (H/2 - y), z);
 }
@@ -939,7 +975,8 @@ function onResults(results){
   if (now-lastT>500){ fpsEl.textContent = Math.round(frames*1000/(now-lastT))+' fps'; frames=0; lastT=now; }
 
   const lm = results.multiHandLandmarks && results.multiHandLandmarks[0];
-  if (!lm){ statusEl.textContent='No hand detected'; rakhi.visible=false; landmarkDots.forEach(d=>d.visible=false); updatePrompt(1, 'frame'); renderer.render(scene,camera); return; }
+  if (!lm){ statusEl.textContent='No hand detected'; rakhi.visible=false; landmarkDots.forEach(d=>d.visible=false); updatePrompt(1, 'frame'); setHandUI(false); renderer.render(scene,camera); return; }
+  setHandUI(true);   // hand found → show slider, hide guidance
   const W = canvas3.clientWidth, H = canvas3.clientHeight;
 
   // key points in world space
@@ -980,6 +1017,9 @@ function onResults(results){
   const label = results.multiHandedness?.[0]?.label || 'Right';
   // for a RIGHT hand: back-of-hand shows one winding sign, palm the other.
   let backOfHand = (label === 'Right') ? (winding < 0) : (winding > 0);
+  // the winding sign flips when the video is NOT mirrored (rear camera), so compensate
+  // to keep back-of-hand detection consistent across front/rear.
+  if (!isMirrored) backOfHand = !backOfHand;
   if (windingFlip) backOfHand = !backOfHand;   // press 'B' if palm/back are inverted
 
   // ----- FACING: how square-on the back of the hand is to the camera -----
@@ -1110,6 +1150,15 @@ function updatePrompt(show, type){
   const vis = show > 0.75 ? Math.min(1, (show - 0.75) / 0.2) : 0;
   promptEl.style.opacity = vis;
   guideEl.classList.toggle('on', vis > 0.05);   // show the demo clip alongside the prompt
+}
+
+// mutually exclusive AR UI: hand present → slider (tuning); no hand → guidance only.
+function setHandUI(handPresent){
+  document.body.classList.toggle('hand-present', handPresent);
+  if (handPresent){
+    promptEl.style.opacity = 0;
+    guideEl.classList.remove('on');
+  }
 }
 
 async function loop(){
