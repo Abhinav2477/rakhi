@@ -1175,14 +1175,22 @@ async function startCamera(){
 }
 
 function showError(e){
+  console.warn('[camera]', e && e.name, e && e.message, e);   // raw detail for debugging
   const box=document.getElementById('err'), msg=document.getElementById('err-msg');
   box.classList.add('on');
-  const notAllowed = e && e.name==='NotAllowedError';
-  msg.innerHTML = (notAllowed
-    ? 'Camera permission was blocked. Allow camera for this page, then reload.'
-    : 'Couldn’t open the camera. Needs https (or localhost) and a device with a camera.')
-    + '<br><button onclick="location.reload()">Reload</button>'
-    + '<br><small style="color:#888">'+(e?(e.name+': '+e.message):'')+'</small>';
+  const name = e && e.name;
+  let friendly;
+  if (name === 'NotAllowedError'){
+    friendly = '📷 Camera access is blocked.<br>Allow camera for this page in your browser settings, then tap Retry.';
+  } else if (name === 'NotReadableError' || name === 'TrackStartError' || name === 'AbortError'){
+    friendly = '📷 Your camera is busy.<br>It may be open in another tab or app (a video call, WhatsApp, another Rakhi tab). Close those, then tap Retry.';
+  } else if (name === 'NotFoundError' || name === 'OverconstrainedError'){
+    friendly = '📷 No camera found.<br>This experience needs a device with a camera.';
+  } else {
+    friendly = '📷 Couldn’t open the camera.<br>Make sure no other app is using it, then tap Retry.';
+  }
+  msg.innerHTML = friendly
+    + '<br><button onclick="location.reload()">Retry</button>';
 }
 
 function initHands(){
@@ -1366,14 +1374,23 @@ const PROMPTS = {
 };
 
 let currentPromptType = null;
+let guideReady = false;
 function setGuide(type){
   if (type === currentPromptType) return;   // already showing this one
   currentPromptType = type;
   const p = PROMPTS[type];
   guideLabel.textContent = p.label;
-  // try to load the video; if the file isn't there, fall back to the placeholder box.
-  guideVideo.onloadeddata = () => { guideVideo.style.display='block'; guidePlaceholder.style.display='none'; guideVideo.play().catch(()=>{}); };
-  guideVideo.onerror     = () => { guideVideo.style.display='none';  guidePlaceholder.style.display='flex'; guidePlaceholder.textContent = p.label + ' — add ' + p.video; };
+  // hide the card until the NEW video is actually loaded, then it can fade in.
+  guideReady = false;
+  guideEl.classList.remove('on');
+  guidePlaceholder.style.display = 'none';   // never show the placeholder box
+  guideVideo.style.display = 'none';
+  guideVideo.onloadeddata = () => {
+    guideVideo.style.display = 'block';
+    guideReady = true;                       // now the card is allowed to appear
+    guideVideo.play().catch(()=>{});
+  };
+  guideVideo.onerror = () => { guideReady = false; };   // no file → just don't show the card
   guideVideo.src = p.video;
   guideVideo.load();
 }
@@ -1385,7 +1402,8 @@ function updatePrompt(show, type){
   }
   const vis = show > 0.75 ? Math.min(1, (show - 0.75) / 0.2) : 0;
   promptEl.style.opacity = vis;
-  guideEl.classList.toggle('on', vis > 0.05);   // show the demo clip alongside the prompt
+  // show the demo clip only once its video has loaded (no empty placeholder flash)
+  guideEl.classList.toggle('on', vis > 0.05 && guideReady);
 }
 
 // slider visibility follows the rakhi being shown. guidance is owned by updatePrompt.
