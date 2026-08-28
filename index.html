@@ -163,9 +163,9 @@
   /* AR-screen share button (above the debug controls) */
   #ar-share-wrap {
     position: absolute; left: 0; right: 0; bottom: 64px;
-    display: flex; justify-content: center; padding: 0 20px; z-index: 4;
+    display: flex; flex-direction: column; align-items: center; padding: 0 20px; z-index: 4;
   }
-  #ar-share-wrap .btn-primary { max-width: 420px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
+  #ar-share-wrap .btn-primary { max-width: 420px; width: 100%; box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
 
   /* mobile vertical offset slider (right side) */
   .mobile-only { display: none; }
@@ -341,7 +341,7 @@
   #err button { margin-top: 14px; padding: 10px 18px; border: 0; border-radius: 999px; background: #d8a34b; color: #111; font-weight: 700; cursor: pointer; }
 
   #pose-prompt {
-    position: absolute; left: 0; right: 0; bottom: 22%;
+    position: absolute; left: 0; right: 0; bottom: 27%;
     display: flex; justify-content: center; pointer-events: none;
     opacity: 0; transition: opacity .25s ease;
   }
@@ -931,19 +931,16 @@ function capturePhoto(){
   ctx.drawImage(video, (W - dw)/2, (H - dh)/2, dw, dh);
   ctx.restore();
 
-  // 2) hide dots/labels/skeleton/axes, render ONE clean frame, draw the 3D layer on top
+  // 2) hide dots/skeleton/axes, render ONE clean frame, draw the 3D layer on top
   const dotsWere = landmarkDots.map(d=>d.visible);
-  const labelsWere = landmarkLabels.map(l=>l.visible);
-  const skelWas = skeletonLines ? skeletonLines.visible : false;
+  const bonesWere = skeletonBones.map(b=>b.visible);
   landmarkDots.forEach(d=>d.visible=false);
-  landmarkLabels.forEach(l=>l.visible=false);
-  if (skeletonLines) skeletonLines.visible = false;
+  skeletonBones.forEach(b=>b.visible=false);
   const axesWas = axesHelper.visible; axesHelper.visible = false;
   renderer.render(scene, camera);
   ctx.drawImage(canvas3, 0, 0, W, H);
   landmarkDots.forEach((d,i)=>d.visible=dotsWere[i]);
-  landmarkLabels.forEach((l,i)=>l.visible=labelsWere[i]);
-  if (skeletonLines) skeletonLines.visible = skelWas;
+  skeletonBones.forEach((b,i)=>b.visible=bonesWere[i]);
   axesHelper.visible = axesWas;
 
   return out.toDataURL('image/jpeg', 0.92);
@@ -1097,8 +1094,7 @@ let windingFlip = false; // toggle if palm/back detection is inverted (press B)
 /* ---------------- Three.js setup ---------------- */
 let renderer, scene, camera, rakhi, axesHelper;
 let landmarkDots = [];
-let landmarkLabels = [];
-let skeletonLines = null;
+let skeletonBones = [];
 let handConnections = [];
 let showDots = true;
 let smoothed = null;   // { pos:Vector3, quat:Quaternion, scale:number }
@@ -1146,9 +1142,8 @@ function initThree(){
   axesHelper.visible = showAxes;
   rakhi.add(axesHelper);
 
-  // --- gold hand skeleton: connecting lines + dots + numbered chips ---
+  // --- gold hand skeleton: thick connecting bones (cylinders) + dots ---
   const GOLD = 0xd8a34b;
-  // MediaPipe hand connection topology (which landmark links to which)
   handConnections = [
     [0,1],[1,2],[2,3],[3,4],            // thumb
     [0,5],[5,6],[6,7],[7,8],            // index
@@ -1157,12 +1152,15 @@ function initThree(){
     [13,17],[17,18],[18,19],[19,20],    // pinky
     [0,17],                             // palm base
   ];
-  // skeleton lines (one LineSegments, positions updated each frame)
-  const skelGeo = new THREE.BufferGeometry();
-  skelGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(handConnections.length*2*3), 3));
-  skeletonLines = new THREE.LineSegments(skelGeo, new THREE.LineBasicMaterial({ color: GOLD, transparent:true, opacity:0.9 }));
-  skeletonLines.visible = false;
-  scene.add(skeletonLines);
+  const boneMat = new THREE.MeshBasicMaterial({ color: GOLD, transparent:true, opacity:0.92 });
+  // unit cylinder along +Y, radius 1, height 1 — we scale/position/orient per bone each frame
+  const boneGeo = new THREE.CylinderGeometry(1, 1, 1, 8);
+  for (let i = 0; i < handConnections.length; i++){
+    const bone = new THREE.Mesh(boneGeo, boneMat);
+    bone.visible = false;
+    scene.add(bone);
+    skeletonBones.push(bone);
+  }
 
   // 21 gold dots
   const dotGeo = new THREE.SphereGeometry(1, 12, 12);
@@ -1172,34 +1170,7 @@ function initThree(){
     dot.visible = false;
     scene.add(dot);
     landmarkDots.push(dot);
-    // numbered chip as a sprite (dark bg #291722, gold text)
-    const label = makeNumberSprite(i);
-    label.visible = false;
-    scene.add(label);
-    landmarkLabels.push(label);
   }
-}
-
-// build a small sprite showing a number on a dark rounded chip
-function makeNumberSprite(n){
-  const S = 64;
-  const c = document.createElement('canvas'); c.width=c.height=S;
-  const ctx = c.getContext('2d');
-  // dark rounded chip
-  ctx.fillStyle = '#291722';
-  const r = 16;
-  ctx.beginPath();
-  ctx.moveTo(r,0); ctx.arcTo(S,0,S,S,r); ctx.arcTo(S,S,0,S,r); ctx.arcTo(0,S,0,0,r); ctx.arcTo(0,0,S,0,r); ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(216,163,75,0.6)'; ctx.lineWidth = 3; ctx.stroke();
-  // number
-  ctx.fillStyle = '#f0d29a';
-  ctx.font = 'bold 34px Inter, sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(String(n), S/2, S/2+2);
-  const tex = new THREE.CanvasTexture(c);
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent:true, depthTest:false }));
-  return spr;
 }
 
 function makeOrthoCamera(){
@@ -1309,7 +1280,7 @@ function onResults(results){
   if (now-lastT>500){ fpsEl.textContent = Math.round(frames*1000/(now-lastT))+' fps'; frames=0; lastT=now; }
 
   const lm = results.multiHandLandmarks && results.multiHandLandmarks[0];
-  if (!lm){ statusEl.textContent='No hand detected'; rakhi.visible=false; landmarkDots.forEach(d=>d.visible=false); landmarkLabels.forEach(l=>l.visible=false); if(skeletonLines) skeletonLines.visible=false; updatePrompt(1, 'frame'); setHandUI(false); renderer.render(scene,camera); return; }
+  if (!lm){ statusEl.textContent='No hand detected'; rakhi.visible=false; landmarkDots.forEach(d=>d.visible=false); skeletonBones.forEach(b=>b.visible=false); updatePrompt(1, 'frame'); setHandUI(false); renderer.render(scene,camera); return; }
   const W = canvas3.clientWidth, H = canvas3.clientHeight;
 
   // key points in world space
@@ -1423,31 +1394,29 @@ function onResults(results){
   updatePrompt(1 - smoothed.opacity, 'turn');
   setHandUI(smoothed.opacity > 0.5);   // rakhi shown → slider; rakhi faded → guidance
 
-  // update the gold hand skeleton: dots, numbered chips, and connecting lines
-  const dotR = Math.max(3, handW * 0.035);
+  // update the gold hand skeleton: dots + thick cylinder bones
+  const dotR = Math.max(3, handW * 0.04);
+  const boneR = Math.max(2, handW * 0.02);   // bone thickness
   const worldPts = [];
   for (let i = 0; i < 21; i++) worldPts.push(toWorld(lm[i], W, H));
   for (let i = 0; i < 21; i++){
-    const d = landmarkDots[i], lab = landmarkLabels[i];
-    if (showDots){
-      d.position.copy(worldPts[i]); d.scale.setScalar(dotR); d.visible = true;
-      // label sits slightly above the dot, size in pixels
-      lab.position.set(worldPts[i].x, worldPts[i].y + dotR*3.5, worldPts[i].z);
-      lab.scale.set(dotR*5, dotR*5, 1);
-      lab.visible = true;
-    } else { d.visible = false; lab.visible = false; }
+    const d = landmarkDots[i];
+    if (showDots){ d.position.copy(worldPts[i]); d.scale.setScalar(dotR); d.visible = true; }
+    else d.visible = false;
   }
-  if (showDots && skeletonLines){
-    const pos = skeletonLines.geometry.attributes.position.array;
-    let k = 0;
-    for (const [a,b] of handConnections){
-      pos[k++]=worldPts[a].x; pos[k++]=worldPts[a].y; pos[k++]=worldPts[a].z;
-      pos[k++]=worldPts[b].x; pos[k++]=worldPts[b].y; pos[k++]=worldPts[b].z;
-    }
-    skeletonLines.geometry.attributes.position.needsUpdate = true;
-    skeletonLines.visible = true;
-  } else if (skeletonLines){
-    skeletonLines.visible = false;
+  const _up = new THREE.Vector3(0,1,0), _dir = new THREE.Vector3(), _mid = new THREE.Vector3();
+  for (let b = 0; b < handConnections.length; b++){
+    const bone = skeletonBones[b];
+    if (!showDots){ bone.visible = false; continue; }
+    const [a, c] = handConnections[b];
+    const pa = worldPts[a], pc = worldPts[c];
+    _dir.subVectors(pc, pa);
+    const len = _dir.length() || 0.0001;
+    _mid.addVectors(pa, pc).multiplyScalar(0.5);
+    bone.position.copy(_mid);
+    bone.scale.set(boneR, len, boneR);
+    bone.quaternion.setFromUnitVectors(_up, _dir.normalize());
+    bone.visible = true;
   }
 
   renderer.render(scene, camera);
